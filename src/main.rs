@@ -1,9 +1,10 @@
-use std::error::Error;
+use std::{error::Error, fs};
 
 use env_logger::WriteStyle;
 use log::info;
 use nalgebra::DVector;
-use rand::thread_rng;
+use rand::Rng;
+use rand::{distributions::Alphanumeric, thread_rng};
 
 use rand::seq::SliceRandom;
 use crate::network::{cost_vectors, one_hot_vector};
@@ -66,10 +67,28 @@ fn main() -> Result<(), Box<dyn Error>> {
             one_hot_vector(image.label)
         ))
         .collect();
+
+    let save_prefix: String = thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(4)
+        .map(char::from)
+        .collect();
+
+    let save_prefix = format!("networks/{save_prefix}-");
+    info!("Network will be saved with prefix {save_prefix:?}");
     
     info!("Starting training on {} inputs!", backprop_inputs.len());
     let mut network = network;
     for i in 0..1_000 {
+        if i % 100 == 0 {
+            let path = format!("{save_prefix}{i}.json");
+            info!("Saving network to {path:?}");
+            let json = serde_json::to_string(&network);
+            if let Ok(json) = json {
+                let _ = fs::write(path, json);
+            }
+        }
+
         let output = network.forward_propagation(&input_x);
         let cost = cost_vectors(&output, &input_target_vec);
         info!("[i={i}] cost for first image: {cost}");

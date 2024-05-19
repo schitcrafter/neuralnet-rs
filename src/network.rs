@@ -3,8 +3,9 @@ use log::debug;
 use nalgebra::{DMatrix, DVector};
 use rand::Rng;
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct NeuralNetwork {
     pub layer_sizes: Vec<u32>,
     pub layer_weights: Vec<DMatrix<f32>>,
