@@ -79,16 +79,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     
     info!("Starting training on {} inputs!", backprop_inputs.len());
     let mut network = network;
-    for i in 0..1_000 {
-        if i % 100 == 0 {
-            let path = format!("{save_prefix}{i}.json");
-            info!("Saving network to {path:?}");
-            let json = serde_json::to_string(&network);
-            if let Ok(json) = json {
-                let _ = fs::write(path, json);
-            }
+    for i in 0..100 {
+        let path = format!("{save_prefix}{i}.json");
+        info!("Saving network to {path:?}");
+        let json = serde_json::to_string(&network);
+        if let Ok(json) = json {
+            let _ = fs::write(path, json);
         }
-
+    
         let output = network.forward_propagation(&input_x);
         let cost = cost_vectors(&output, &input_target_vec);
         info!("[i={i}] cost for first image: {cost}");
