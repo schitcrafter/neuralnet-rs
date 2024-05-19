@@ -11,3 +11,4 @@ itertools = "0.12.1"
 log = { version = "0.4.21", features = ["std"] }
 nalgebra = "0.32.5"
 rand = "0.8.5"
+rayon = "1.10.0"
