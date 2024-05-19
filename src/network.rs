@@ -5,6 +5,8 @@ use rand::Rng;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
+const DEFAULT_LEARNING_RATE: f32 = 0.1;
+
 #[derive(Clone, Deserialize, Serialize)]
 pub struct NeuralNetwork {
     pub layer_sizes: Vec<u32>,
@@ -44,7 +46,7 @@ impl NeuralNetwork {
             layer_sizes,
             layer_weights,
             layer_biases,
-            learning_rate: 0.1
+            learning_rate: DEFAULT_LEARNING_RATE
         }
     }
 
@@ -65,10 +67,29 @@ impl NeuralNetwork {
 
         last_output
     }
+
+    /// returns the average cost of each datapoint,
+    /// as well as which percentage was correctly classified
+    pub fn average_cost_correct_classified(&self, inputs: &[(DVector<f32>, u8)]) -> (f32, f32) {
+        let (added_costs, correct_classified): (f32, usize) = inputs.par_iter()
+            .map(|(input, expected)| {
+                let output = self.forward_propagation(input);
+                let cost = cost_digit(&output, *expected);
+                let correctly_classified = correctly_classified(&output, *expected);
+                (cost, correctly_classified as usize)
+            })
+            .reduce(|| (0.0, 0),
+                |acc, x| (acc.0 + x.0, acc.1 + x.1)
+            );
+        
+        let correct_classified_percent = (correct_classified as f32) * 100.0 / inputs.len() as f32;
+        (added_costs / inputs.len() as f32, correct_classified_percent)
+    }
     
     /// Does backpropagation for a single input, returning
     /// the wanted changes to the weights.
-    pub fn back_prop_single_input(&self, input: &DVector<f32>, y: &DVector<f32>) -> Vec<DMatrix<f32>> {
+    pub fn back_prop_single_input(&self, input: &DVector<f32>, y_digit: u8) -> Vec<DMatrix<f32>> {
+        let y = one_hot_vector(y_digit);
         // do forward prop and get all information out of it that we can
         let mut activations = vec![input.clone()];
         
@@ -82,15 +103,12 @@ impl NeuralNetwork {
             activations.push(activation);
         }
 
-        // This will store the gradients all weights will go to
+        // This will store the gradients all weights will go to, right to left
         let mut weight_gradients = vec![];
 
         let output_activ = activations.last().unwrap();
         let error_deriv = output_activ - y;
         let mut last_delta = error_deriv.component_mul(&output_activ.map(sigmoid_derivative));
-
-        let last_layer_weight_gradient = &last_delta * output_activ.transpose();
-        weight_gradients.push(last_layer_weight_gradient);
 
         let weight_activation_iter =
             self.layer_weights.iter().rev()
@@ -98,27 +116,22 @@ impl NeuralNetwork {
 
         for (weights, (activation_right, activation_left)) in weight_activation_iter {
             debug!("weights: {:?}, activation_left: {:?}, activation_right: {:?}", weights.shape(), activation_left.shape(), activation_right.shape());
-            debug!("last_delta: {:?}", last_delta.data.as_slice());
 
             let weight_gradient = &last_delta * activation_left.transpose();
             assert_eq!(weight_gradient.shape(), weights.shape(), "Shape of weight gradient matrix is wrong");
             weight_gradients.push(weight_gradient);
             
             let new_delta = weights.transpose() * last_delta;
-            debug!("W^T * last_delta: {:?}", new_delta.data.as_slice());
             let activation_deriv = activation_left.map(sigmoid_derivative);
-            debug!("activation_deriv: {:?}", activation_deriv.data.as_slice());
 
-            // left: (10, 1) right: (16, 1)
-            // new_delta neeeds to be (10, 1) for this to work
             let new_delta = activation_deriv.component_mul(&new_delta);
-            debug!("new_delta: {:?}", new_delta.data.as_slice());
 
             last_delta = new_delta;
         }
 
         weight_gradients.reverse();
 
+        assert_eq!(weight_gradients.len(), self.layer_weights.len());
         for (weight_gradient, weight) in weight_gradients.iter().zip(&self.layer_weights) {
             assert_eq!(weight_gradient.shape(), weight.shape());
         }
@@ -127,7 +140,7 @@ impl NeuralNetwork {
     }
 
     /// inputs is a list of input vectors to expected outputs
-    pub fn backwards_propagation(&mut self, inputs: &[(DVector<f32>, DVector<f32>)]) {
+    pub fn backwards_propagation(&mut self, inputs: &[(DVector<f32>, u8)]) {
         let mut changes: Vec<DMatrix<f32>> = Vec::new();
 
         for weight_mat in &self.layer_weights {
@@ -142,7 +155,7 @@ impl NeuralNetwork {
 
         let added_deltas = inputs.par_iter()
             .map(|(input, target)|
-                self.back_prop_single_input(input, target))
+                self.back_prop_single_input(input, *target))
             .reduce(|| zero_matrices.clone(), |acc, deltas| {
                 acc.into_iter().zip(deltas)
                     .map(|(l, r)| l + r)
@@ -190,6 +203,12 @@ pub fn one_hot_vector(digit: u8) -> DVector<f32> {
     vec[digit as usize] = 1.0;
 
     DVector::from_vec(vec)
+}
+
+fn correctly_classified(output: &DVector<f32>, digit: u8) -> bool {
+    output.data.as_slice().iter().position_max_by(
+        |x, y| x.total_cmp(y)
+    ) == Some(digit as usize)
 }
 
 fn sigmoid(x: f32) -> f32 {
