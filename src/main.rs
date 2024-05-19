@@ -1,3 +1,4 @@
+use std::time::Instant;
 use std::{error::Error, fs};
 
 use env_logger::WriteStyle;
@@ -74,7 +75,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .map(char::from)
         .collect();
 
-    let save_prefix = format!("networks/{save_prefix}-");
+    let save_prefix = format!("networks/{save_prefix}-gen");
     info!("Network will be saved with prefix {save_prefix:?}");
     
     info!("Starting training on {} inputs!", backprop_inputs.len());
@@ -91,7 +92,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         let cost = cost_vectors(&output, &input_target_vec);
         info!("[i={i}] cost for first image: {cost}");
     
+        let start = Instant::now();
         network.backwards_propagation(&backprop_inputs);
+        let duration = start.elapsed();
+        info!("Generation took {}ms", duration.as_millis());
     }
 
     Ok(())
