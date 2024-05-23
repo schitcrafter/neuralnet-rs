@@ -5,13 +5,12 @@ use rand::Rng;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
-const DEFAULT_LEARNING_RATE: f32 = 0.1;
+const DEFAULT_LEARNING_RATE: f32 = 10.0;
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct NeuralNetwork {
     pub layer_sizes: Vec<u32>,
     pub layer_weights: Vec<DMatrix<f32>>,
-    pub layer_biases: Vec<DVector<f32>>,
     pub learning_rate: f32,
 }
 
@@ -26,26 +25,20 @@ impl NeuralNetwork {
         let mut rng = rand::thread_rng();
 
         for (left, right) in layer_sizes.iter().tuple_windows() {
-            let new_matrix = DMatrix::from_fn(*right as usize, *left as usize, |_, _| {
+            let new_matrix = DMatrix::from_fn(*right as usize, *left as usize + 1, |_, _| {
                 rng.gen_range(-1.0..=1.0)
             });
             layer_weights.push(new_matrix);
         }
 
         assert_eq!(layer_sizes.len(), layer_weights.len() + 1);
-        assert_eq!(layer_weights[0].nrows(), layer_weights[1].ncols());
-
-        let mut layer_biases = Vec::new();
-        for layer_size in &layer_sizes[1..] {
-            layer_biases.push(DVector::<f32>::zeros(*layer_size as usize));
+        if layer_weights.len() >= 2 {
+            assert_eq!(layer_weights[0].nrows(), layer_weights[1].ncols() - 1);
         }
-
-        assert_eq!(layer_biases.len(), layer_sizes.len() - 1);
 
         NeuralNetwork {
             layer_sizes,
             layer_weights,
-            layer_biases,
             learning_rate: DEFAULT_LEARNING_RATE
         }
     }
@@ -56,9 +49,8 @@ impl NeuralNetwork {
     pub fn forward_propagation(&self, input: &DVector<f32>) -> DVector<f32> {
         let mut last_output = input.clone();
 
-        for (weights, biases) in self.layer_weights.iter().zip(&self.layer_biases) {
-            let mut activation = weights * last_output;
-            activation += biases;
+        for weights in self.layer_weights.iter() {
+            let mut activation = weights * last_output.push(1.0);
 
             activation.apply(|value| *value = sigmoid(*value));
 
@@ -93,10 +85,9 @@ impl NeuralNetwork {
         // do forward prop and get all information out of it that we can
         let mut activations = vec![input.clone()];
         
-        for (weights, biases) in self.layer_weights.iter().zip(&self.layer_biases) {
+        for weights in self.layer_weights.iter() {
             let last_output = activations.last().unwrap();
-            let mut activation = weights * last_output;
-            activation += biases;
+            let mut activation = weights * last_output.push(1.0);
 
             activation.apply(|value| *value = sigmoid(*value));
 
@@ -117,11 +108,12 @@ impl NeuralNetwork {
         for (weights, (activation_right, activation_left)) in weight_activation_iter {
             debug!("weights: {:?}, activation_left: {:?}, activation_right: {:?}", weights.shape(), activation_left.shape(), activation_right.shape());
 
-            let weight_gradient = &last_delta * activation_left.transpose();
+            let weight_gradient = &last_delta * activation_left.push(1.0).transpose();
             assert_eq!(weight_gradient.shape(), weights.shape(), "Shape of weight gradient matrix is wrong");
             weight_gradients.push(weight_gradient);
             
-            let new_delta = weights.transpose() * last_delta;
+            let weights_transpose_no_bias = weights.columns(0, weights.ncols()-1).transpose();
+            let new_delta = weights_transpose_no_bias * last_delta;
             let activation_deriv = activation_left.map(sigmoid_derivative);
 
             let new_delta = activation_deriv.component_mul(&new_delta);
@@ -219,4 +211,21 @@ fn sigmoid(x: f32) -> f32 {
 /// of the sigmoid as output.
 fn sigmoid_derivative(x: f32) -> f32 {
     x * (1.0 - x)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_random_network() {
+        let net = NeuralNetwork::new_random(vec![10, 10]);
+        
+        assert_eq!(net.layer_weights.len(), 1);
+        let input = DVector::from_vec(
+            vec![1.0; 10]
+        );
+        let output = net.forward_propagation(&input);
+        assert_eq!(output.shape(), (10, 1));
+    }
 }

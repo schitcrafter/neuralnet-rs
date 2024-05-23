@@ -15,3 +15,5 @@ jobs:
     - run: cargo clippy -- -D warnings
     - name: Build
       run: cargo build
+    - name: Run tests
+      run: cargo test --no-fail-fast
